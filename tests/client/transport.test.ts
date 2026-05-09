@@ -138,7 +138,7 @@ describe('createFetchTransport — request', () => {
 
   it('nem-JSON hiba body szövegként marad', async () => {
     const { fetch: f } = makeMockFetch({ status: 500, body: 'Internal Server Error' });
-    const t = createFetchTransport({ apiToken: 'tok', fetch: f, maxRetries: 0 });
+    const t = createFetchTransport({ apiToken: 'tok', fetch: f });
     try {
       await t.request({ method: 'GET', path: '/x' });
     } catch (err) {
@@ -152,7 +152,7 @@ describe('createFetchTransport — request', () => {
     ['message', { message: 'üzenet' }, 'üzenet'],
   ])('shortMessage extrakció: %s mezőből', async (_label, body, expected) => {
     const { fetch: f } = makeMockFetch({ status: 422, body });
-    const t = createFetchTransport({ apiToken: 'tok', fetch: f, maxRetries: 0 });
+    const t = createFetchTransport({ apiToken: 'tok', fetch: f });
     try {
       await t.request({ method: 'GET', path: '/x' });
       throw new Error('should have thrown');
@@ -164,7 +164,7 @@ describe('createFetchTransport — request', () => {
   it('nem-JSON hosszú szöveges body nem kerül a message-be', async () => {
     const longText = 'x'.repeat(500);
     const { fetch: f } = makeMockFetch({ status: 500, body: longText });
-    const t = createFetchTransport({ apiToken: 'tok', fetch: f, maxRetries: 0 });
+    const t = createFetchTransport({ apiToken: 'tok', fetch: f });
     try {
       await t.request({ method: 'GET', path: '/x' });
     } catch (err) {
@@ -175,34 +175,15 @@ describe('createFetchTransport — request', () => {
   });
 });
 
-describe('createFetchTransport — retry middleware', () => {
-  it('429 → retry, 2. próbálkozásra siker', async () => {
-    let attempt = 0;
-    const { fetch: f, calls } = makeMockFetch(() => {
-      attempt++;
-      if (attempt === 1) return { status: 429, body: { _error: 'rate limited' } };
-      return { status: 200, body: { ok: true } };
-    });
-    const t = createFetchTransport({ apiToken: 'tok', fetch: f });
-    const res = await t.request<{ ok: boolean }>({ method: 'GET', path: '/x' });
-    expect(res).toEqual({ ok: true });
-    expect(calls).toHaveLength(2);
-  });
-
-  it('5xx-ek után megáll max retry-nál', async () => {
-    let attempt = 0;
-    const { fetch: f, calls } = makeMockFetch(() => {
-      attempt++;
-      return { status: 503, body: 'down' };
-    });
+describe('createFetchTransport — error handling (no retry)', () => {
+  it('5xx → azonnali fail (no retry — n8n cloud sandbox tiltja a timer API-kat)', async () => {
+    const { fetch: f, calls } = makeMockFetch({ status: 503, body: 'down' });
     const t = createFetchTransport({ apiToken: 'tok', fetch: f });
     await expect(t.request({ method: 'GET', path: '/x' })).rejects.toBeInstanceOf(QuickApiError);
-    // 1 alaphívás + 3 retry = 4 attempt
-    expect(calls).toHaveLength(4);
-    expect(attempt).toBe(4);
+    expect(calls).toHaveLength(1);
   });
 
-  it('400 (nem-transient) — azonnali fail', async () => {
+  it('400 — azonnali fail', async () => {
     const { fetch: f, calls } = makeMockFetch({ status: 400, body: 'bad' });
     const t = createFetchTransport({ apiToken: 'tok', fetch: f });
     await expect(t.request({ method: 'GET', path: '/x' })).rejects.toBeInstanceOf(QuickApiError);
@@ -211,43 +192,13 @@ describe('createFetchTransport — retry middleware', () => {
 
   it('network error (fetch throws) → QuickApiError statusCode 0', async () => {
     const { fetch: f } = makeMockFetch({ throw: new Error('ECONNRESET') });
-    const t = createFetchTransport({ apiToken: 'tok', fetch: f, maxRetries: 0 });
+    const t = createFetchTransport({ apiToken: 'tok', fetch: f });
     try {
       await t.request({ method: 'GET', path: '/x' });
     } catch (err) {
       expect(err).toBeInstanceOf(QuickApiError);
       expect((err as QuickApiError).statusCode).toBe(0);
     }
-  });
-
-  it('Retry-After fejléc tiszteletben — n8n-szerű hibából (response.headers)', async () => {
-    let attempt = 0;
-    const { fetch: f, calls } = makeMockFetch(() => {
-      attempt++;
-      if (attempt === 1) {
-        return { status: 429, body: { _error: 'rl' }, headers: { 'retry-after': '0' } };
-      }
-      return { status: 200, body: { ok: true } };
-    });
-    const t = createFetchTransport({ apiToken: 'tok', fetch: f });
-    const start = Date.now();
-    await t.request({ method: 'GET', path: '/x' });
-    expect(calls).toHaveLength(2);
-    expect(Date.now() - start).toBeLessThan(500);
-  });
-
-  it('Retry-After parse-olhatatlan értéket csendesen ignorálja', async () => {
-    let attempt = 0;
-    const { fetch: f } = makeMockFetch(() => {
-      attempt++;
-      if (attempt === 1) {
-        return { status: 429, body: 'rl', headers: { 'retry-after': 'not-a-number' } };
-      }
-      return { status: 200, body: { ok: true } };
-    });
-    const t = createFetchTransport({ apiToken: 'tok', fetch: f });
-    await t.request({ method: 'GET', path: '/x' });
-    expect(attempt).toBe(2);
   });
 
   it('extra defaultHeaders-t felülírja az auth-ot, ha kell — de Authorization-t felül íródik', async () => {

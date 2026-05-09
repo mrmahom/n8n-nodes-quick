@@ -1,4 +1,3 @@
-import { setTimeout as sleep } from 'node:timers/promises';
 import { QuickApiError } from './errors';
 
 /** A QUiCK API alapértelmezett base URL-je. */
@@ -10,13 +9,6 @@ export const PAGINATION_CONCURRENCY = 5;
 export const PAGINATION_MAX_PAGES = 500;
 /** Default lapméret. */
 export const DEFAULT_PAGE_SIZE = 100;
-
-/** Retry: max próbálkozás transient hiba (429 / 5xx) esetén. */
-export const MAX_RETRIES = 3;
-/** Retry: exponenciális backoff alapja (ms). */
-export const RETRY_BASE_MS = 100;
-/** Retry: backoff felső határa (ms). */
-export const MAX_BACKOFF_MS = 2000;
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
@@ -54,8 +46,6 @@ export interface FetchTransportOptions {
   companyId?: string;
   /** Custom fetch implementáció (pl. teszteléshez vagy Workers env-hez). */
   fetch?: typeof fetch;
-  /** Override a max retry számra. Default: {@link MAX_RETRIES}. */
-  maxRetries?: number;
   /** Extra fejlécek minden kérésre. */
   defaultHeaders?: Record<string, string>;
 }
@@ -63,11 +53,16 @@ export interface FetchTransportOptions {
 /**
  * Natív fetch-alapú transport. A QUiCK API auth-okat (`Authorization: Token …`,
  * opcionális `Quick-Company-Id`) automatikusan beilleszti.
+ *
+ * **Megjegyzés a retry-ról:** az n8n cloud community-node sandbox tiltja az
+ * időzítő API-kat (`setTimeout`, `node:timers/promises` stb.), ezért a
+ * transport nem implementál exponenciális backoff-ot. A 429/5xx hibákat a
+ * hívó kódnak kell kezelnie — n8n-en belül a node `Retry on Fail`
+ * funkciójával, kódból pedig a try/catch + saját logikával.
  */
 export function createFetchTransport(opts: FetchTransportOptions): Transport {
   const baseUrl = (opts.baseUrl || DEFAULT_BASE_URL).replace(/\/$/, '');
   const fetchImpl = opts.fetch ?? fetch;
-  const maxRetries = opts.maxRetries ?? MAX_RETRIES;
 
   async function executeOne<T>(req: RequestOptions): Promise<T> {
     const url = new URL(`${baseUrl}${req.path}`);
@@ -91,31 +86,38 @@ export function createFetchTransport(opts: FetchTransportOptions): Transport {
       body: req.body !== undefined && req.body !== null ? JSON.stringify(req.body) : undefined,
     };
 
-    return await runWithRetry<T>(req, async () => {
-      const response = await fetchImpl(url.toString(), init);
-      if (!response.ok) {
-        const text = await response.text();
-        let parsed: unknown = text;
-        try {
-          parsed = JSON.parse(text);
-        } catch {
-          /* nem JSON, hagyjuk text-ként */
-        }
-        throw new QuickApiError(
-          `QUiCK API ${response.status}: ${shortMessage(parsed) ?? response.statusText}`,
-          {
-            statusCode: response.status,
-            body: parsed,
-            endpoint: `${req.method} ${req.path}`,
-          },
-        );
-      }
-      // 204 No Content vagy üres test
-      if (response.status === 204) return undefined as T;
+    let response: Response;
+    try {
+      response = await fetchImpl(url.toString(), init);
+    } catch (cause) {
+      throw new QuickApiError(`Network error during ${req.method} ${req.path}`, {
+        statusCode: 0,
+        body: undefined,
+        endpoint: `${req.method} ${req.path}`,
+        cause,
+      });
+    }
+    if (!response.ok) {
       const text = await response.text();
-      if (!text) return undefined as T;
-      return JSON.parse(text) as T;
-    }, maxRetries);
+      let parsed: unknown = text;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        /* nem JSON, hagyjuk text-ként */
+      }
+      throw new QuickApiError(
+        `QUiCK API ${response.status}: ${shortMessage(parsed) ?? response.statusText}`,
+        {
+          statusCode: response.status,
+          body: parsed,
+          endpoint: `${req.method} ${req.path}`,
+        },
+      );
+    }
+    if (response.status === 204) return undefined as T;
+    const text = await response.text();
+    if (!text) return undefined as T;
+    return JSON.parse(text) as T;
   }
 
   return makeTransport(executeOne);
@@ -162,24 +164,22 @@ export function createN8nTransport(
     if (req.query && Object.keys(req.query).length > 0) httpOptions.qs = req.query;
     if (req.body !== undefined && req.body !== null) httpOptions.body = req.body;
 
-    return await runWithRetry<T>(req, async () => {
-      try {
-        return (await context.helpers.httpRequestWithAuthentication.call(
-          context,
-          'quickApi',
-          httpOptions,
-        )) as T;
-      } catch (error) {
-        const e = error as { httpCode?: string | number; message?: string; response?: unknown };
-        const status = Number.parseInt(String(e.httpCode ?? '0'), 10) || 0;
-        throw new QuickApiError(`QUiCK API ${status || 'error'}: ${e.message ?? 'unknown'}`, {
-          statusCode: status,
-          body: e.response,
-          endpoint: `${req.method} ${req.path}`,
-          cause: error,
-        });
-      }
-    }, MAX_RETRIES);
+    try {
+      return (await context.helpers.httpRequestWithAuthentication.call(
+        context,
+        'quickApi',
+        httpOptions,
+      )) as T;
+    } catch (error) {
+      const e = error as { httpCode?: string | number; message?: string; response?: unknown };
+      const status = Number.parseInt(String(e.httpCode ?? '0'), 10) || 0;
+      throw new QuickApiError(`QUiCK API ${status || 'error'}: ${e.message ?? 'unknown'}`, {
+        statusCode: status,
+        body: e.response,
+        endpoint: `${req.method} ${req.path}`,
+        cause: error,
+      });
+    }
   }
 
   return makeTransport(executeOne);
@@ -287,54 +287,6 @@ async function fetchPagesInParallel<T>(
   const workerCount = Math.min(PAGINATION_CONCURRENCY, pageCount);
   await Promise.all(Array.from({ length: workerCount }, () => worker()));
   return buckets.flat();
-}
-
-/**
- * Retry middleware a transient hibákra (429 / 5xx). A `Retry-After` fejlécet
- * tiszteletben tartja. A nem-transient hibákat azonnal továbbdobja.
- */
-async function runWithRetry<T>(
-  req: RequestOptions,
-  exec: () => Promise<T>,
-  maxRetries: number,
-): Promise<T> {
-  let lastError: unknown;
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await exec();
-    } catch (error) {
-      lastError = error;
-      const transient = error instanceof QuickApiError && error.isTransient;
-      if (!transient || attempt === maxRetries) break;
-
-      const retryAfter = readRetryAfter(error);
-      const delayMs =
-        retryAfter !== undefined
-          ? Math.max(0, retryAfter * 1000)
-          : Math.min(RETRY_BASE_MS * 2 ** attempt, MAX_BACKOFF_MS);
-      await sleep(delayMs);
-    }
-  }
-  // A break-eknél az utolsó error mindig QuickApiError-ra van wrapelve
-  throw lastError instanceof QuickApiError
-    ? lastError
-    : new QuickApiError(`Network error during ${req.method} ${req.path}`, {
-        statusCode: 0,
-        body: undefined,
-        endpoint: `${req.method} ${req.path}`,
-        cause: lastError,
-      });
-}
-
-function readRetryAfter(err: unknown): number | undefined {
-  if (!(err instanceof QuickApiError)) return undefined;
-  const body = err.body as { headers?: Record<string, string> } | undefined;
-  const header = body?.headers?.['retry-after'];
-  if (typeof header === 'string') {
-    const n = Number.parseInt(header, 10);
-    return Number.isNaN(n) ? undefined : n;
-  }
-  return undefined;
 }
 
 function appendQuery(url: URL, query: Record<string, unknown> | undefined): void {

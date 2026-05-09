@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-quick",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "n8n community node + szabad API-kliens a QUiCK (helloquick.riport.app) számlázó/könyvelő rendszerhez",
   "keywords": [
     "n8n-community-node-package",
@@ -41,7 +41,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "prepublishOnly": "npm run build && npm run lint -c .eslintrc.prepublish.js nodes credentials package.json"
+    "prepublishOnly": "npm run build && npm run lint -c .eslintrc.prepublish.js nodes credentials package.json",
+    "scan": "node scripts/scan.mjs"
   },
   "files": [
     "dist/client",
@@ -62,10 +63,12 @@
     ]
   },
   "devDependencies": {
+    "@n8n/eslint-plugin-community-nodes": "^0.14.0",
     "@types/jest": "^29.5.12",
     "@types/node": "^20.14.10",
     "@typescript-eslint/parser": "^7.15.0",
     "eslint": "^8.57.0",
+    "eslint-flat": "npm:eslint@^9.39.4",
     "eslint-plugin-n8n-nodes-base": "^1.16.3",
     "gulp": "^4.0.2",
     "jest": "^29.7.0",

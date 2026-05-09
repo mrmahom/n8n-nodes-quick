@@ -18,41 +18,34 @@ import { createMockExecuteFunctions } from '../../helpers/mockExecuteFunctions';
 
 const node = new Quick();
 
-describe('Retry middleware', () => {
-  it('429 → retry → 2. próbálkozásra siker', async () => {
+describe('Hiba propagálás (retry nélkül)', () => {
+  it('429 → azonnali QuickApiError, n8n felelőssége retry-zni', async () => {
     let attempts = 0;
     const handle = createMockExecuteFunctions({
       parameters: { resource: 'pulse', operation: 'get' },
       httpResponse: () => {
         attempts++;
-        if (attempts < 2) {
-          throw Object.assign(new Error('rate limited'), { httpCode: '429' });
-        }
-        return { ok: true };
+        throw Object.assign(new Error('rate limited'), { httpCode: '429' });
       },
     });
-    const out = await node.execute.call(handle.context);
-    expect(attempts).toBe(2);
-    expect(out[0][0].json).toEqual({ ok: true });
+    await expect(node.execute.call(handle.context)).rejects.toThrow();
+    expect(attempts).toBe(1);
   });
 
-  it('5xx → retry → 3. próbálkozásra siker', async () => {
+  it('5xx → azonnali fail (no retry — n8n cloud sandbox tiltja a timer API-kat)', async () => {
     let attempts = 0;
     const handle = createMockExecuteFunctions({
       parameters: { resource: 'pulse', operation: 'get' },
       httpResponse: () => {
         attempts++;
-        if (attempts < 3) {
-          throw Object.assign(new Error('server error'), { httpCode: '503' });
-        }
-        return { ok: true };
+        throw Object.assign(new Error('server error'), { httpCode: '503' });
       },
     });
-    await node.execute.call(handle.context);
-    expect(attempts).toBe(3);
+    await expect(node.execute.call(handle.context)).rejects.toThrow();
+    expect(attempts).toBe(1);
   });
 
-  it('400 (nem-transient) → azonnali fail, retry nélkül', async () => {
+  it('400 (nem-transient) → azonnali fail', async () => {
     let attempts = 0;
     const handle = createMockExecuteFunctions({
       parameters: { resource: 'pulse', operation: 'get' },
@@ -63,44 +56,6 @@ describe('Retry middleware', () => {
     });
     await expect(node.execute.call(handle.context)).rejects.toThrow();
     expect(attempts).toBe(1);
-  });
-
-  it('5xx maximum retries elérése után dob', async () => {
-    let attempts = 0;
-    const handle = createMockExecuteFunctions({
-      parameters: { resource: 'pulse', operation: 'get' },
-      httpResponse: () => {
-        attempts++;
-        throw Object.assign(new Error('always 500'), { httpCode: '500' });
-      },
-    });
-    await expect(node.execute.call(handle.context)).rejects.toThrow();
-    // 1 alaphívás + 3 retry = 4 attempt
-    expect(attempts).toBe(4);
-  });
-
-  it('Retry-After fejléc tiszteletben tartva (sekélyebb wait)', async () => {
-    let attempts = 0;
-    const start = Date.now();
-    const handle = createMockExecuteFunctions({
-      parameters: { resource: 'pulse', operation: 'get' },
-      httpResponse: () => {
-        attempts++;
-        if (attempts < 2) {
-          const e = new Error('rate limited');
-          (e as Error & { httpCode?: string; response?: unknown }).httpCode = '429';
-          (e as Error & { httpCode?: string; response?: unknown }).response = {
-            headers: { 'retry-after': '0' }, // 0s retry — azonnal mehet
-          };
-          throw e;
-        }
-        return { ok: true };
-      },
-    });
-    await node.execute.call(handle.context);
-    expect(attempts).toBe(2);
-    // Retry-After: 0 esetén jellemzően <100ms total
-    expect(Date.now() - start).toBeLessThan(500);
   });
 });
 
