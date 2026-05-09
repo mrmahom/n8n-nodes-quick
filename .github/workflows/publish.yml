@@ -31,7 +31,11 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        # `--legacy-peer-deps`: a dev-time lint (eslint 8 + n8n-nodes-base plugin)
+        # és a publish-szigorú scan (eslint 9 + @n8n/eslint-plugin-community-nodes)
+        # eltérő ESLint major verziót peer-el. Lokálisan ezt a kombinációt
+        # `npm install --legacy-peer-deps`-szel kezeljük; a CI-nek is szüksége van rá.
+        run: npm ci --legacy-peer-deps
 
       - name: Verify version matches tag
         if: startsWith(github.ref, 'refs/tags/v')
