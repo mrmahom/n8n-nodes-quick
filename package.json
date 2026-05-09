@@ -17,7 +17,7 @@
   "homepage": "https://helloquick.riport.app",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/emartinmaho/n8n-nodes-quick.git"
+    "url": "git+https://github.com/mrmahom/n8n-nodes-quick.git"
   },
   "engines": {
     "node": ">=20.15.0"
