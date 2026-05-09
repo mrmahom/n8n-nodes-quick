@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from 'node:timers/promises';
 import { QuickApiError } from './errors';
 
 /** A QUiCK API alapértelmezett base URL-je. */
@@ -334,10 +335,6 @@ function readRetryAfter(err: unknown): number | undefined {
     return Number.isNaN(n) ? undefined : n;
   }
   return undefined;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function appendQuery(url: URL, query: Record<string, unknown> | undefined): void {
