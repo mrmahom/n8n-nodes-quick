@@ -1,0 +1,72 @@
+{
+  "name": "QUiCK — Havi kiadás export",
+  "description": "Egy adott hónap kiadásait jóváhagyja és exportált státuszba állítja. Trigger: cron pl. minden hónap 5-én reggel.",
+  "tags": ["quick", "expense", "monthly", "export"],
+  "nodes": [
+    {
+      "id": "schedule",
+      "name": "Cron — minden hónap 5. nap",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "parameters": {
+        "triggerTimes": {
+          "item": [{ "mode": "everyMonth", "dayOfMonth": 5, "hour": 8, "minute": 0 }]
+        }
+      }
+    },
+    {
+      "id": "list-expenses",
+      "name": "Get Many Expenses (előző hó)",
+      "type": "n8n-nodes-quick.quick",
+      "typeVersion": 1,
+      "position": [480, 300],
+      "parameters": {
+        "resource": "expense",
+        "operation": "getAll",
+        "returnAll": true,
+        "filters": {
+          "date_field": "fulfilled_at",
+          "from_date": "={{ $now.minus({months: 1}).startOf('month').toFormat('yyyy-MM-dd') }}",
+          "to_date": "={{ $now.minus({months: 1}).endOf('month').toFormat('yyyy-MM-dd') }}",
+          "is_approved": false
+        }
+      }
+    },
+    {
+      "id": "approve-batch",
+      "name": "Approve all (auto-batch 100/req)",
+      "type": "n8n-nodes-quick.quick",
+      "typeVersion": 1,
+      "position": [720, 300],
+      "parameters": {
+        "resource": "expense",
+        "operation": "approve",
+        "ids": "={{ $items().map(i => i.json.id).join(',') }}"
+      }
+    },
+    {
+      "id": "export-batch",
+      "name": "Export all (auto-batch 100/req)",
+      "type": "n8n-nodes-quick.quick",
+      "typeVersion": 1,
+      "position": [960, 300],
+      "parameters": {
+        "resource": "expense",
+        "operation": "export",
+        "ids": "={{ $('Get Many Expenses (előző hó)').all().map(i => i.json.id).join(',') }}"
+      }
+    }
+  ],
+  "connections": {
+    "Cron — minden hónap 5. nap": {
+      "main": [[{ "node": "Get Many Expenses (előző hó)", "type": "main", "index": 0 }]]
+    },
+    "Get Many Expenses (előző hó)": {
+      "main": [[{ "node": "Approve all (auto-batch 100/req)", "type": "main", "index": 0 }]]
+    },
+    "Approve all (auto-batch 100/req)": {
+      "main": [[{ "node": "Export all (auto-batch 100/req)", "type": "main", "index": 0 }]]
+    }
+  }
+}

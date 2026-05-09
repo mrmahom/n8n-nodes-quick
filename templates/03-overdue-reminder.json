@@ -1,0 +1,68 @@
+{
+  "name": "QUiCK — Lejárt számlák napi emlékeztető",
+  "description": "Naponta egyszer összeszedi a lejárt fizetésű kiadásokat, és emailt küld a könyvelőnek a listával + összesítéssel.",
+  "tags": ["quick", "expense", "overdue", "email", "daily"],
+  "nodes": [
+    {
+      "id": "schedule",
+      "name": "Cron — minden reggel 7-kor",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "parameters": {
+        "triggerTimes": { "item": [{ "mode": "everyDay", "hour": 7, "minute": 0 }] }
+      }
+    },
+    {
+      "id": "list-overdue",
+      "name": "Lejárt fizetetlen kiadások",
+      "type": "n8n-nodes-quick.quick",
+      "typeVersion": 1,
+      "position": [480, 300],
+      "parameters": {
+        "resource": "expense",
+        "operation": "getAll",
+        "returnAll": true,
+        "filters": { "is_expired": true, "is_paid": false }
+      }
+    },
+    {
+      "id": "summarize",
+      "name": "Összegez",
+      "type": "n8n-nodes-base.summarize",
+      "typeVersion": 1,
+      "position": [720, 300],
+      "parameters": {
+        "fieldsToSummarize": {
+          "values": [
+            { "aggregation": "sum", "field": "gross_amount" },
+            { "aggregation": "count", "field": "id" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "email",
+      "name": "Email a könyvelőnek",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [960, 300],
+      "parameters": {
+        "toEmail": "konyvelo@cegunk.hu",
+        "subject": "Lejárt fizetetlen kiadások: {{ $json.count_id }} db, összesen {{ $json.sum_gross_amount }} Ft",
+        "text": "=Mai listát mellékelve.\n\n{{ $items('Lejárt fizetetlen kiadások').map(i => `${i.json.invoice_number}: ${i.json.partner_name} - ${i.json.gross_amount} Ft (lejárt: ${i.json.due_at})`).join('\\n') }}"
+      }
+    }
+  ],
+  "connections": {
+    "Cron — minden reggel 7-kor": {
+      "main": [[{ "node": "Lejárt fizetetlen kiadások", "type": "main", "index": 0 }]]
+    },
+    "Lejárt fizetetlen kiadások": {
+      "main": [[{ "node": "Összegez", "type": "main", "index": 0 }]]
+    },
+    "Összegez": {
+      "main": [[{ "node": "Email a könyvelőnek", "type": "main", "index": 0 }]]
+    }
+  }
+}

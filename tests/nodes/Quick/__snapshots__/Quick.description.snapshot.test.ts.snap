@@ -1,0 +1,149 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`Quick description — n8n konvenciók a description szerkezete stabil — snapshot mentés 1`] = `
+{
+  "credentials": [
+    {
+      "name": "quickApi",
+      "required": true,
+    },
+  ],
+  "displayName": "QUiCK",
+  "icon": "file:quick.svg",
+  "name": "quick",
+  "resources": [
+    {
+      "operations": [
+        "getAll",
+      ],
+      "value": "account",
+    },
+    {
+      "operations": [
+        "getExpense",
+        "getIncome",
+      ],
+      "value": "artifact",
+    },
+    {
+      "operations": [
+        "upload",
+      ],
+      "value": "auditXml",
+    },
+    {
+      "operations": [
+        "getInfo",
+        "updateInfo",
+      ],
+      "value": "company",
+    },
+    {
+      "operations": [
+        "attach",
+        "create",
+        "delete",
+        "detach",
+        "get",
+        "getFiles",
+        "getAll",
+        "search",
+        "update",
+      ],
+      "value": "document",
+    },
+    {
+      "operations": [
+        "getAll",
+      ],
+      "value": "documentType",
+    },
+    {
+      "operations": [
+        "approve",
+        "check",
+        "create",
+        "export",
+        "get",
+        "getAll",
+        "quarantineAccept",
+        "searchArtifact",
+        "unapprove",
+        "uncheck",
+        "update",
+      ],
+      "value": "expense",
+    },
+    {
+      "operations": [
+        "get",
+        "getAll",
+      ],
+      "value": "income",
+    },
+    {
+      "operations": [
+        "create",
+        "delete",
+        "getAll",
+        "update",
+      ],
+      "value": "ledgerNumber",
+    },
+    {
+      "operations": [
+        "getAll",
+      ],
+      "value": "partner",
+    },
+    {
+      "operations": [
+        "getAll",
+      ],
+      "value": "payment",
+    },
+    {
+      "operations": [
+        "get",
+      ],
+      "value": "pulse",
+    },
+    {
+      "operations": [
+        "create",
+        "delete",
+        "getAll",
+        "update",
+      ],
+      "value": "salary",
+    },
+    {
+      "operations": [
+        "create",
+        "delete",
+        "getAll",
+        "update",
+      ],
+      "value": "tax",
+    },
+    {
+      "operations": [
+        "getAll",
+      ],
+      "value": "taxCode",
+    },
+    {
+      "operations": [
+        "create",
+        "delete",
+        "getAll",
+        "update",
+      ],
+      "value": "vatCategory",
+    },
+  ],
+  "version": [
+    1,
+  ],
+}
+`;
